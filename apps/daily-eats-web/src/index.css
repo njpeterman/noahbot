@@ -1,0 +1,47 @@
+:root {
+  color-scheme: light dark;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: #fff7ed;
+  color: #1c1917;
+  min-height: 100vh;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+@media (prefers-color-scheme: dark) {
+  body { background: #1c1917; color: #fafaf9; }
+}
+
+main {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem 2rem;
+}
+
+header h1 {
+  margin: 0;
+  font-size: 2rem;
+  color: #ea580c;
+}
+
+.tagline { margin: 0.25rem 0 1.5rem; opacity: 0.75; }
+.hello { font-size: 1.125rem; }
+.loc { opacity: 0.75; }
+.error { color: #b91c1c; }
+
+.deals { list-style: none; padding: 0; display: grid; gap: 0.75rem; }
+.deals li {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.9rem 1rem;
+  border-radius: 0.75rem;
+  background: rgba(234, 88, 12, 0.08);
+  border: 1px solid rgba(234, 88, 12, 0.25);
+}
+.deals small { opacity: 0.65; }

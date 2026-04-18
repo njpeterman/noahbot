@@ -1,0 +1,26 @@
+node_modules/
+dist/
+build/
+.DS_Store
+.env
+.env.local
+.env.*.local
+*.log
+npm-debug.log*
+.vite/
+.turbo/
+coverage/
+*.tsbuildinfo
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+Thumbs.db
+
+# Local SQLite DBs
+*.sqlite
+*.sqlite3
+*.db

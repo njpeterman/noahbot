@@ -1,0 +1,24 @@
+{
+  "name": "noahbot",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Personal-assistant monorepo. Daily Eats is the first module.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces --if-present",
+    "dev:api": "npm run dev --workspace apps/daily-eats-api",
+    "dev:web": "npm run dev --workspace apps/daily-eats-web",
+    "build": "npm run build --workspaces --if-present",
+    "start:api": "npm run start --workspace apps/daily-eats-api",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
