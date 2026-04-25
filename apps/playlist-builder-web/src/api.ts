@@ -21,6 +21,10 @@ export async function searchTracks(query: string): Promise<Track[]> {
 }
 
 export async function playTrack(deviceId: string, trackUri: string): Promise<void> {
+  return playTrackUris(deviceId, [trackUri]);
+}
+
+export async function playTrackUris(deviceId: string, trackUris: string[]): Promise<void> {
   const token = await fetchAccessToken();
   const r = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
     method: "PUT",
@@ -28,7 +32,7 @@ export async function playTrack(deviceId: string, trackUri: string): Promise<voi
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ uris: [trackUri] }),
+    body: JSON.stringify({ uris: trackUris }),
   });
   if (!r.ok && r.status !== 204) {
     const text = await r.text();
@@ -119,6 +123,14 @@ export async function adoptPlaylist(playlist: string): Promise<{ adopted: number
     throw new Error(`adopt_failed: ${r.status} ${text}`);
   }
   return (await r.json()) as { adopted: number; playlist_id: string };
+}
+
+export type PlaylistTrack = LikedSong & { rating: Rating | null };
+
+export async function buildPlaylist(): Promise<{ tracks: PlaylistTrack[]; total_ms: number }> {
+  const r = await fetch("/api/playlist/build");
+  if (!r.ok) throw new Error(`build_failed: ${r.status}`);
+  return (await r.json()) as { tracks: PlaylistTrack[]; total_ms: number };
 }
 
 export async function rateTrack(track_uri: string, rating: Rating): Promise<void> {

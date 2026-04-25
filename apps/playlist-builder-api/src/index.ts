@@ -238,6 +238,56 @@ async function ensureHeavyRotationPlaylist(): Promise<string> {
   return playlistId;
 }
 
+type LikedSongWithRating = LikedSongRow & { rating: Rating | null };
+
+app.get("/api/playlist/build", (_req, res) => {
+  const TARGET_MS = 60 * 60 * 1000;
+  const HEAVY_PCT = 0.6;
+
+  const heavyPool = db
+    .prepare(
+      `SELECT l.*, r.rating as rating
+       FROM liked_songs l
+       JOIN track_ratings r ON r.track_uri = l.track_uri
+       WHERE r.rating = 'heavy_rotation'
+       ORDER BY RANDOM()
+       LIMIT 60`
+    )
+    .all() as LikedSongWithRating[];
+
+  const unratedPool = db
+    .prepare(
+      `SELECT l.*, r.rating as rating
+       FROM liked_songs l
+       LEFT JOIN track_ratings r ON r.track_uri = l.track_uri
+       WHERE r.rating IS NULL OR r.rating = 'defer'
+       ORDER BY RANDOM()
+       LIMIT 60`
+    )
+    .all() as LikedSongWithRating[];
+
+  const result: LikedSongWithRating[] = [];
+  let totalMs = 0;
+  let hi = 0;
+  let ui = 0;
+  while (totalMs < TARGET_MS) {
+    const heavyAvail = hi < heavyPool.length;
+    const unratedAvail = ui < unratedPool.length;
+    if (!heavyAvail && !unratedAvail) break;
+    const pickHeavy = !unratedAvail || (heavyAvail && Math.random() < HEAVY_PCT);
+    const track = pickHeavy ? heavyPool[hi++]! : unratedPool[ui++]!;
+    result.push(track);
+    totalMs += track.duration_ms ?? 0;
+  }
+
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j]!, result[i]!];
+  }
+
+  res.json({ tracks: result, total_ms: totalMs });
+});
+
 app.post("/api/triage/adopt-playlist", async (req, res) => {
   const { playlist } = (req.body ?? {}) as { playlist?: string };
   const playlistId = playlist ? parsePlaylistId(playlist) : null;

@@ -2,13 +2,13 @@ import { useEffect, useState } from "react";
 import { exchangeCodeForTokens, login, logout } from "./auth";
 import {
   adoptPlaylist,
+  buildPlaylist,
   fetchEvents,
-  fetchNextTriage,
   fetchTriageStats,
-  playTrack,
+  playTrackUris,
   rateTrack,
   syncLikedSongs,
-  type LikedSong,
+  type PlaylistTrack,
   type Rating,
   type StoredEvent,
   type TriageStats,
@@ -16,9 +16,7 @@ import {
 import { usePlayer } from "./player";
 
 type AuthStatus = "unknown" | "authed" | "anon" | "error";
-type Tab = "triage" | "events";
-
-const SEEK_MS = 15_000;
+type Tab = "listen" | "events";
 
 function useAuthStatus(): [AuthStatus, () => void] {
   const [status, setStatus] = useState<AuthStatus>("unknown");
@@ -68,10 +66,10 @@ function fmtMs(ms: number): string {
   return `${m}:${r.toString().padStart(2, "0")}`;
 }
 
-function TriagePanel({ player }: { player: PlayerHandle }) {
-  const [song, setSong] = useState<LikedSong | null>(null);
-  const [source, setSource] = useState<"unrated" | "deferred" | undefined>(undefined);
+function PlaylistPanel({ player }: { player: PlayerHandle }) {
+  const [queue, setQueue] = useState<PlaylistTrack[]>([]);
   const [stats, setStats] = useState<TriageStats | null>(null);
+  const [building, setBuilding] = useState(false);
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [adopting, setAdopting] = useState(false);
@@ -81,45 +79,56 @@ function TriagePanel({ player }: { player: PlayerHandle }) {
 
   const paused = player.currentState?.paused ?? true;
   const duration = player.currentState?.duration ?? 0;
+  const currentUri = player.currentState?.track_window.current_track?.uri ?? null;
+  const current = currentUri ? queue.find((t) => t.track_uri === currentUri) ?? null : null;
+
   const [position, setPosition] = useState(0);
+  const [seeking, setSeeking] = useState(false);
 
   useEffect(() => {
+    if (seeking) return;
     setPosition(player.currentState?.position ?? 0);
-  }, [player.currentState]);
+  }, [player.currentState, seeking]);
 
   useEffect(() => {
-    if (paused || !player.player) return;
+    if (paused || !player.player || seeking) return;
     const id = setInterval(() => {
       void player.player!.getCurrentState().then((s) => {
         if (s) setPosition(s.position);
       });
     }, 500);
     return () => clearInterval(id);
-  }, [paused, player.player]);
+  }, [paused, player.player, seeking]);
 
   const refreshStats = () => {
     fetchTriageStats().then(setStats).catch(() => {});
   };
 
-  const loadNext = async () => {
-    setErr(null);
-    try {
-      const { song, source } = await fetchNextTriage();
-      setSong(song);
-      setSource(source);
-      if (song && player.deviceId) {
-        await playTrack(player.deviceId, song.track_uri);
-      }
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "load failed");
-    }
-  };
-
   useEffect(() => {
     refreshStats();
-    void loadNext();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [player.deviceId]);
+  }, []);
+
+  const onBuild = async () => {
+    if (!player.deviceId) {
+      setErr("Player not ready yet — wait a moment.");
+      return;
+    }
+    setBuilding(true);
+    setErr(null);
+    try {
+      const { tracks } = await buildPlaylist();
+      setQueue(tracks);
+      if (tracks.length === 0) {
+        setErr("No tracks available — sync Liked Songs first.");
+        return;
+      }
+      await playTrackUris(player.deviceId, tracks.map((t) => t.track_uri));
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "build failed");
+    } finally {
+      setBuilding(false);
+    }
+  };
 
   const onAdopt = async () => {
     if (!adoptInput.trim()) return;
@@ -130,7 +139,6 @@ function TriagePanel({ player }: { player: PlayerHandle }) {
       setAdoptInput("");
       setAdoptOpen(false);
       refreshStats();
-      await loadNext();
       alert(`Adopted ${adopted} tracks as Heavy Rotation.`);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "adopt failed");
@@ -145,7 +153,6 @@ function TriagePanel({ player }: { player: PlayerHandle }) {
     try {
       await syncLikedSongs();
       refreshStats();
-      if (!song) await loadNext();
     } catch (e) {
       setErr(e instanceof Error ? e.message : "sync failed");
     } finally {
@@ -154,13 +161,18 @@ function TriagePanel({ player }: { player: PlayerHandle }) {
   };
 
   const onRate = async (rating: Rating) => {
-    if (!song || busy) return;
+    if (!current || busy) return;
     setBusy(true);
     setErr(null);
     try {
-      await rateTrack(song.track_uri, rating);
+      await rateTrack(current.track_uri, rating);
+      setQueue((q) =>
+        q.map((t) => (t.track_uri === current.track_uri ? { ...t, rating } : t))
+      );
       refreshStats();
-      await loadNext();
+      if (rating === "reject") {
+        void player.player?.nextTrack();
+      }
     } catch (e) {
       setErr(e instanceof Error ? e.message : "rate failed");
     } finally {
@@ -168,26 +180,16 @@ function TriagePanel({ player }: { player: PlayerHandle }) {
     }
   };
 
-  const onReplay = async () => {
-    if (!song || !player.deviceId) return;
-    try {
-      await playTrack(player.deviceId, song.track_uri);
-    } catch {
-      // ignore
-    }
-  };
-
-  const artists: string[] = song ? JSON.parse(song.artists) : [];
+  const artists: string[] = current ? JSON.parse(current.artists) : [];
 
   return (
     <section className="triage">
       <div className="triage-header">
         {stats && (
           <div className="stats">
-            <span><strong>{stats.unrated}</strong> to triage</span>
+            <span><strong>{stats.unrated}</strong> untriaged</span>
             <span><strong>{stats.heavy_rotation}</strong> 🔥</span>
             <span><strong>{stats.reject}</strong> 🗑</span>
-            <span><strong>{stats.defer}</strong> ⏳</span>
           </div>
         )}
         <div className="header-actions">
@@ -216,43 +218,58 @@ function TriagePanel({ player }: { player: PlayerHandle }) {
 
       {err && <p className="error">{err}</p>}
 
-      {!song && (
+      {queue.length === 0 && (
         <div className="triage-empty">
-          <p>{stats?.total === 0 ? "No liked songs synced yet — hit Sync." : "All caught up. ✨"}</p>
+          <button onClick={onBuild} disabled={building || !player.deviceId} className="primary build">
+            {building ? "Building…" : "Build Playlist"}
+          </button>
+          <p className="hint">~60 min mix of Heavy Rotation + untriaged Liked Songs, shuffled.</p>
         </div>
       )}
 
-      {song && (
+      {current && (
         <>
           <div className="triage-card">
-            {song.album_image_url && (
-              <img src={song.album_image_url} alt="" className="triage-art" />
+            {current.album_image_url && (
+              <img src={current.album_image_url} alt="" className="triage-art" />
             )}
-            <h2>{song.track_name}</h2>
+            <h2>{current.track_name}</h2>
             <p className="triage-artists">{artists.join(", ")}</p>
-            <p className="triage-album">{song.album}</p>
-            {source === "deferred" && <p className="triage-source">↩︎ Re-surfaced from defer</p>}
+            <p className="triage-album">{current.album}</p>
+            {current.rating === "heavy_rotation" && (
+              <p className="triage-source">🔥 In Heavy Rotation</p>
+            )}
 
             <div className="triage-progress">
               <span className="time">{fmtMs(position)}</span>
-              <div className="progress-bar">
-                <div
-                  className="progress-fill"
-                  style={{ width: duration > 0 ? `${(position / duration) * 100}%` : "0%" }}
-                />
-              </div>
+              <input
+                type="range"
+                className="scrubber"
+                min={0}
+                max={duration || 0}
+                value={position}
+                onMouseDown={() => setSeeking(true)}
+                onTouchStart={() => setSeeking(true)}
+                onMouseUp={() => setSeeking(false)}
+                onTouchEnd={() => setSeeking(false)}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  setPosition(v);
+                  void player.player?.seek(v);
+                }}
+                disabled={!player.player || duration === 0}
+              />
               <span className="time">{fmtMs(duration)}</span>
             </div>
 
             <div className="triage-playback">
-              <button onClick={onReplay} className="replay" title="Replay from start">↻</button>
               <button
-                onClick={() => void player.player?.seek(Math.max(0, position - SEEK_MS))}
+                onClick={() => void player.player?.previousTrack()}
                 disabled={!player.player}
                 className="seek"
-                title="Back 15s"
+                title="Previous track"
               >
-                ⏪
+                ⏮
               </button>
               <button
                 onClick={() => void player.player?.togglePlay()}
@@ -262,37 +279,39 @@ function TriagePanel({ player }: { player: PlayerHandle }) {
                 {paused ? "▶" : "⏸"}
               </button>
               <button
-                onClick={() => void player.player?.seek(Math.min(duration, position + SEEK_MS))}
+                onClick={() => void player.player?.nextTrack()}
                 disabled={!player.player}
                 className="seek"
-                title="Forward 15s"
+                title="Next track"
               >
-                ⏩
+                ⏭
               </button>
             </div>
           </div>
 
-          <div className="triage-actions">
-            <button
-              onClick={() => onRate("reject")}
-              disabled={busy}
-              className="reject"
-            >
-              🗑 Reject
-            </button>
-            <button
-              onClick={() => onRate("defer")}
-              disabled={busy}
-              className="defer"
-            >
-              ⏳ Defer
-            </button>
-            <button
-              onClick={() => onRate("heavy_rotation")}
-              disabled={busy}
-              className="primary heavy"
-            >
-              🔥 Heavy Rotation
+          {current.rating !== "heavy_rotation" && (
+            <div className="triage-actions">
+              <button
+                onClick={() => onRate("reject")}
+                disabled={busy}
+                className="reject"
+              >
+                🗑 Reject
+              </button>
+              <button
+                onClick={() => onRate("heavy_rotation")}
+                disabled={busy}
+                className="primary heavy"
+              >
+                🔥 Heavy Rotation
+              </button>
+            </div>
+          )}
+
+          <div className="queue-meta">
+            {queue.findIndex((t) => t.track_uri === current.track_uri) + 1} / {queue.length}
+            <button onClick={onBuild} disabled={building} className="rebuild">
+              {building ? "Building…" : "↻ New playlist"}
             </button>
           </div>
         </>
@@ -342,7 +361,7 @@ function EventLog() {
 
 function AuthedApp({ onLogout }: { onLogout: () => void }) {
   const player = usePlayer();
-  const [tab, setTab] = useState<Tab>("triage");
+  const [tab, setTab] = useState<Tab>("listen");
 
   return (
     <>
@@ -352,11 +371,11 @@ function AuthedApp({ onLogout }: { onLogout: () => void }) {
       </header>
 
       <nav className="tabs">
-        <button onClick={() => setTab("triage")} className={tab === "triage" ? "active" : ""}>Triage</button>
+        <button onClick={() => setTab("listen")} className={tab === "listen" ? "active" : ""}>Listen</button>
         <button onClick={() => setTab("events")} className={tab === "events" ? "active" : ""}>Events</button>
       </nav>
 
-      {tab === "triage" && <TriagePanel player={player} />}
+      {tab === "listen" && <PlaylistPanel player={player} />}
       {tab === "events" && <EventLog />}
     </>
   );
