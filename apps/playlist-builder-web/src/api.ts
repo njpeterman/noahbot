@@ -89,7 +89,10 @@ export type TriageStats = {
 
 export async function syncLikedSongs(): Promise<{ synced: number; total: number }> {
   const r = await fetch("/api/liked-songs/sync", { method: "POST" });
-  if (!r.ok) throw new Error(`sync_failed: ${r.status}`);
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error(`sync_failed: ${r.status} ${text}`);
+  }
   return (await r.json()) as { synced: number; total: number };
 }
 
