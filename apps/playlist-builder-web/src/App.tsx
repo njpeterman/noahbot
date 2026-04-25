@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { exchangeCodeForTokens, login, logout } from "./auth";
 import {
+  adoptPlaylist,
   fetchEvents,
   fetchNextTriage,
   fetchTriageStats,
@@ -164,6 +165,9 @@ function TriagePanel({ player }: { player: PlayerHandle }) {
   const [stats, setStats] = useState<TriageStats | null>(null);
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [adopting, setAdopting] = useState(false);
+  const [adoptInput, setAdoptInput] = useState("");
+  const [adoptOpen, setAdoptOpen] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const refreshStats = () => {
@@ -189,6 +193,24 @@ function TriagePanel({ player }: { player: PlayerHandle }) {
     void loadNext();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [player.deviceId]);
+
+  const onAdopt = async () => {
+    if (!adoptInput.trim()) return;
+    setAdopting(true);
+    setErr(null);
+    try {
+      const { adopted } = await adoptPlaylist(adoptInput.trim());
+      setAdoptInput("");
+      setAdoptOpen(false);
+      refreshStats();
+      await loadNext();
+      alert(`Adopted ${adopted} tracks as Heavy Rotation.`);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "adopt failed");
+    } finally {
+      setAdopting(false);
+    }
+  };
 
   const onSync = async () => {
     setSyncing(true);
@@ -241,10 +263,29 @@ function TriagePanel({ player }: { player: PlayerHandle }) {
             <span><strong>{stats.defer}</strong> ⏳</span>
           </div>
         )}
-        <button onClick={onSync} disabled={syncing}>
-          {syncing ? "Syncing…" : "Sync Liked Songs"}
-        </button>
+        <div className="header-actions">
+          <button onClick={onSync} disabled={syncing}>
+            {syncing ? "Syncing…" : "Sync Liked Songs"}
+          </button>
+          <button onClick={() => setAdoptOpen((v) => !v)} disabled={adopting}>
+            Adopt playlist
+          </button>
+        </div>
       </div>
+
+      {adoptOpen && (
+        <div className="adopt-form">
+          <input
+            value={adoptInput}
+            onChange={(e) => setAdoptInput(e.target.value)}
+            placeholder="Spotify playlist URL or ID"
+            disabled={adopting}
+          />
+          <button onClick={onAdopt} disabled={adopting || !adoptInput.trim()} className="primary">
+            {adopting ? "Adopting…" : "Adopt"}
+          </button>
+        </div>
+      )}
 
       {err && <p className="error">{err}</p>}
 

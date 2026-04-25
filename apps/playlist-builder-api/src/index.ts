@@ -14,10 +14,20 @@ import { getValidAccessToken } from "./spotify.js";
 import {
   addTracksToPlaylist,
   createPlaylist,
+  getAllPlaylistTrackUris,
   getMe,
   getSavedTracksPage,
   removeTracksFromPlaylist,
 } from "./spotify-client.js";
+
+function parsePlaylistId(input: string): string | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  const m = trimmed.match(/playlist[/:]([A-Za-z0-9]+)/);
+  if (m) return m[1]!;
+  if (/^[A-Za-z0-9]+$/.test(trimmed)) return trimmed;
+  return null;
+}
 
 const PORT = Number(process.env.PORT ?? 3002);
 const HOST = process.env.HOST ?? "0.0.0.0";
@@ -227,6 +237,35 @@ async function ensureHeavyRotationPlaylist(): Promise<string> {
   setHeavyRotationPlaylistId(playlistId);
   return playlistId;
 }
+
+app.post("/api/triage/adopt-playlist", async (req, res) => {
+  const { playlist } = (req.body ?? {}) as { playlist?: string };
+  const playlistId = playlist ? parsePlaylistId(playlist) : null;
+  if (!playlistId) {
+    return res.status(400).json({ error: "invalid_playlist" });
+  }
+
+  try {
+    const uris = await getAllPlaylistTrackUris(playlistId);
+    const now = new Date().toISOString();
+    const tx = db.transaction((trackUris: string[]) => {
+      for (const uri of trackUris) {
+        upsertRating.run({
+          track_uri: uri,
+          rating: "heavy_rotation",
+          rated_at: now,
+          defer_count: 0,
+        });
+      }
+    });
+    tx(uris);
+    setHeavyRotationPlaylistId(playlistId);
+    res.json({ ok: true, adopted: uris.length, playlist_id: playlistId });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "unknown";
+    res.status(500).json({ error: msg });
+  }
+});
 
 app.post("/api/triage/rate", async (req, res) => {
   const { track_uri, rating } = (req.body ?? {}) as { track_uri?: string; rating?: Rating };

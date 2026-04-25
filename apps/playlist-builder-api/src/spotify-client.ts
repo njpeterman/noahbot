@@ -74,3 +74,34 @@ export async function removeTracksFromPlaylist(playlistId: string, trackUris: st
   });
   if (!r.ok) throw new Error(`removeTracksFromPlaylist failed: ${r.status} ${await r.text()}`);
 }
+
+type PlaylistTracksItem = {
+  track: { uri: string; type: string; is_local?: boolean } | null;
+};
+
+type PlaylistTracksPage = {
+  items: PlaylistTracksItem[];
+  next: string | null;
+  total: number;
+};
+
+export async function getAllPlaylistTrackUris(playlistId: string): Promise<string[]> {
+  const uris: string[] = [];
+  let offset = 0;
+  const limit = 100;
+  while (true) {
+    const r = await authedFetch(
+      `/playlists/${playlistId}/tracks?limit=${limit}&offset=${offset}&fields=items(track(uri,type,is_local)),next,total`
+    );
+    if (!r.ok) throw new Error(`getAllPlaylistTrackUris failed: ${r.status} ${await r.text()}`);
+    const page = (await r.json()) as PlaylistTracksPage;
+    for (const it of page.items) {
+      const t = it.track;
+      if (!t || t.is_local || t.type !== "track" || !t.uri.startsWith("spotify:track:")) continue;
+      uris.push(t.uri);
+    }
+    if (!page.next || page.items.length === 0) break;
+    offset += page.items.length;
+  }
+  return uris;
+}

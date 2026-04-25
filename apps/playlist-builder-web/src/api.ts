@@ -108,6 +108,19 @@ export async function fetchNextTriage(): Promise<{ song: LikedSong | null; sourc
   return (await r.json()) as { song: LikedSong | null; source?: "unrated" | "deferred" };
 }
 
+export async function adoptPlaylist(playlist: string): Promise<{ adopted: number; playlist_id: string }> {
+  const r = await fetch("/api/triage/adopt-playlist", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ playlist }),
+  });
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error(`adopt_failed: ${r.status} ${text}`);
+  }
+  return (await r.json()) as { adopted: number; playlist_id: string };
+}
+
 export async function rateTrack(track_uri: string, rating: Rating): Promise<void> {
   const r = await fetch("/api/triage/rate", {
     method: "POST",
