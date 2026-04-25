@@ -79,8 +79,32 @@ function PlaylistPanel({ player }: { player: PlayerHandle }) {
 
   const paused = player.currentState?.paused ?? true;
   const duration = player.currentState?.duration ?? 0;
-  const currentUri = player.currentState?.track_window.current_track?.uri ?? null;
-  const current = currentUri ? queue.find((t) => t.track_uri === currentUri) ?? null : null;
+  const sdkTrack = player.currentState?.track_window.current_track ?? null;
+  const sdkUri = sdkTrack?.uri ?? null;
+  const sdkLinkedFromUri =
+    (sdkTrack as { linked_from?: { uri?: string } } | null)?.linked_from?.uri ?? null;
+  const current =
+    queue.find((t) => t.track_uri === sdkUri || (sdkLinkedFromUri ? t.track_uri === sdkLinkedFromUri : false)) ??
+    null;
+  const display = current
+    ? {
+        name: current.track_name,
+        artists: (JSON.parse(current.artists) as string[]).join(", "),
+        album: current.album ?? "",
+        image: current.album_image_url,
+        rating: current.rating,
+        inQueue: true,
+      }
+    : sdkTrack
+      ? {
+          name: sdkTrack.name,
+          artists: sdkTrack.artists.map((a) => a.name).join(", "),
+          album: sdkTrack.album?.name ?? "",
+          image: sdkTrack.album?.images?.[0]?.url ?? null,
+          rating: null as Rating | null,
+          inQueue: false,
+        }
+      : null;
 
   const [position, setPosition] = useState(0);
   const [seeking, setSeeking] = useState(false);
@@ -180,8 +204,6 @@ function PlaylistPanel({ player }: { player: PlayerHandle }) {
     }
   };
 
-  const artists: string[] = current ? JSON.parse(current.artists) : [];
-
   return (
     <section className="triage">
       <div className="triage-header">
@@ -227,17 +249,20 @@ function PlaylistPanel({ player }: { player: PlayerHandle }) {
         </div>
       )}
 
-      {current && (
+      {display && (
         <>
           <div className="triage-card">
-            {current.album_image_url && (
-              <img src={current.album_image_url} alt="" className="triage-art" />
+            {display.image && (
+              <img src={display.image} alt="" className="triage-art" />
             )}
-            <h2>{current.track_name}</h2>
-            <p className="triage-artists">{artists.join(", ")}</p>
-            <p className="triage-album">{current.album}</p>
-            {current.rating === "heavy_rotation" && (
+            <h2>{display.name}</h2>
+            <p className="triage-artists">{display.artists}</p>
+            <p className="triage-album">{display.album}</p>
+            {display.rating === "heavy_rotation" && (
               <p className="triage-source">🔥 In Heavy Rotation</p>
+            )}
+            {!display.inQueue && (
+              <p className="triage-source">↳ Spotify autoplay (not in your queue)</p>
             )}
 
             <div className="triage-progress">
@@ -289,7 +314,7 @@ function PlaylistPanel({ player }: { player: PlayerHandle }) {
             </div>
           </div>
 
-          {current.rating !== "heavy_rotation" && (
+          {display.inQueue && display.rating !== "heavy_rotation" && (
             <div className="triage-actions">
               <button
                 onClick={() => onRate("reject")}
@@ -309,7 +334,9 @@ function PlaylistPanel({ player }: { player: PlayerHandle }) {
           )}
 
           <div className="queue-meta">
-            {queue.findIndex((t) => t.track_uri === current.track_uri) + 1} / {queue.length}
+            {current
+              ? `${queue.findIndex((t) => t.track_uri === current.track_uri) + 1} / ${queue.length}`
+              : `— / ${queue.length}`}
             <button onClick={onBuild} disabled={building} className="rebuild">
               {building ? "Building…" : "↻ New playlist"}
             </button>
