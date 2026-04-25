@@ -66,3 +66,53 @@ export async function fetchEvents(limit = 50): Promise<StoredEvent[]> {
   const data = (await r.json()) as { events: StoredEvent[] };
   return data.events;
 }
+
+export type Rating = "heavy_rotation" | "reject" | "defer";
+
+export type LikedSong = {
+  track_uri: string;
+  track_name: string;
+  artists: string;
+  album: string | null;
+  album_image_url: string | null;
+  duration_ms: number | null;
+  spotify_added_at: string;
+};
+
+export type TriageStats = {
+  total: number;
+  unrated: number;
+  heavy_rotation: number;
+  reject: number;
+  defer: number;
+};
+
+export async function syncLikedSongs(): Promise<{ synced: number; total: number }> {
+  const r = await fetch("/api/liked-songs/sync", { method: "POST" });
+  if (!r.ok) throw new Error(`sync_failed: ${r.status}`);
+  return (await r.json()) as { synced: number; total: number };
+}
+
+export async function fetchTriageStats(): Promise<TriageStats> {
+  const r = await fetch("/api/triage/stats");
+  if (!r.ok) throw new Error("stats_failed");
+  return (await r.json()) as TriageStats;
+}
+
+export async function fetchNextTriage(): Promise<{ song: LikedSong | null; source?: "unrated" | "deferred" }> {
+  const r = await fetch("/api/triage/next");
+  if (!r.ok) throw new Error("triage_next_failed");
+  return (await r.json()) as { song: LikedSong | null; source?: "unrated" | "deferred" };
+}
+
+export async function rateTrack(track_uri: string, rating: Rating): Promise<void> {
+  const r = await fetch("/api/triage/rate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ track_uri, rating }),
+  });
+  if (!r.ok) {
+    const text = await r.text();
+    throw new Error(`rate_failed: ${r.status} ${text}`);
+  }
+}

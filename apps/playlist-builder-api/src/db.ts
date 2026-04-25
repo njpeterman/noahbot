@@ -18,6 +18,7 @@ db.exec(`
     expires_at TEXT NOT NULL,
     scope TEXT,
     spotify_user_id TEXT,
+    heavy_rotation_playlist_id TEXT,
     updated_at TEXT NOT NULL
   );
 
@@ -38,7 +39,33 @@ db.exec(`
 
   CREATE INDEX IF NOT EXISTS idx_events_ts ON playback_events(ts DESC);
   CREATE INDEX IF NOT EXISTS idx_events_track ON playback_events(track_uri);
+
+  CREATE TABLE IF NOT EXISTS liked_songs (
+    track_uri TEXT PRIMARY KEY,
+    track_name TEXT NOT NULL,
+    artists TEXT NOT NULL,
+    album TEXT,
+    album_image_url TEXT,
+    duration_ms INTEGER,
+    spotify_added_at TEXT NOT NULL,
+    last_synced_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_liked_added ON liked_songs(spotify_added_at);
+
+  CREATE TABLE IF NOT EXISTS track_ratings (
+    track_uri TEXT PRIMARY KEY,
+    rating TEXT NOT NULL CHECK (rating IN ('heavy_rotation', 'reject', 'defer')),
+    rated_at TEXT NOT NULL,
+    defer_count INTEGER NOT NULL DEFAULT 0
+  );
 `);
+
+// Migration: add heavy_rotation_playlist_id column to existing dbs
+const cols = db.prepare("PRAGMA table_info(spotify_auth)").all() as Array<{ name: string }>;
+if (!cols.some((c) => c.name === "heavy_rotation_playlist_id")) {
+  db.exec("ALTER TABLE spotify_auth ADD COLUMN heavy_rotation_playlist_id TEXT");
+}
 
 export type SpotifyAuthRow = {
   id: 1;
@@ -47,14 +74,35 @@ export type SpotifyAuthRow = {
   expires_at: string;
   scope: string | null;
   spotify_user_id: string | null;
+  heavy_rotation_playlist_id: string | null;
   updated_at: string;
+};
+
+export type LikedSongRow = {
+  track_uri: string;
+  track_name: string;
+  artists: string;
+  album: string | null;
+  album_image_url: string | null;
+  duration_ms: number | null;
+  spotify_added_at: string;
+  last_synced_at: string;
+};
+
+export type Rating = "heavy_rotation" | "reject" | "defer";
+
+export type TrackRatingRow = {
+  track_uri: string;
+  rating: Rating;
+  rated_at: string;
+  defer_count: number;
 };
 
 export function getAuth(): SpotifyAuthRow | undefined {
   return db.prepare("SELECT * FROM spotify_auth WHERE id = 1").get() as SpotifyAuthRow | undefined;
 }
 
-export function saveAuth(row: Omit<SpotifyAuthRow, "id" | "updated_at">) {
+export function saveAuth(row: Omit<SpotifyAuthRow, "id" | "updated_at" | "heavy_rotation_playlist_id">) {
   db.prepare(`
     INSERT INTO spotify_auth (id, access_token, refresh_token, expires_at, scope, spotify_user_id, updated_at)
     VALUES (1, @access_token, @refresh_token, @expires_at, @scope, @spotify_user_id, @updated_at)
@@ -66,4 +114,12 @@ export function saveAuth(row: Omit<SpotifyAuthRow, "id" | "updated_at">) {
       spotify_user_id = COALESCE(excluded.spotify_user_id, spotify_auth.spotify_user_id),
       updated_at = excluded.updated_at
   `).run({ ...row, updated_at: new Date().toISOString() });
+}
+
+export function setSpotifyUserId(userId: string) {
+  db.prepare("UPDATE spotify_auth SET spotify_user_id = ? WHERE id = 1").run(userId);
+}
+
+export function setHeavyRotationPlaylistId(playlistId: string) {
+  db.prepare("UPDATE spotify_auth SET heavy_rotation_playlist_id = ? WHERE id = 1").run(playlistId);
 }

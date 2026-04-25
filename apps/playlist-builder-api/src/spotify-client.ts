@@ -1,0 +1,76 @@
+import { getValidAccessToken } from "./spotify.js";
+
+const API = "https://api.spotify.com/v1";
+
+async function authedFetch(path: string, init?: RequestInit): Promise<Response> {
+  const token = await getValidAccessToken();
+  return fetch(`${API}${path}`, {
+    ...init,
+    headers: {
+      ...init?.headers,
+      Authorization: `Bearer ${token}`,
+    },
+  });
+}
+
+export type SpotifyMe = { id: string; display_name: string | null; email: string | null };
+
+export async function getMe(): Promise<SpotifyMe> {
+  const r = await authedFetch("/me");
+  if (!r.ok) throw new Error(`getMe failed: ${r.status}`);
+  return (await r.json()) as SpotifyMe;
+}
+
+export type SavedTracksItem = {
+  added_at: string;
+  track: {
+    uri: string;
+    name: string;
+    duration_ms: number;
+    artists: { name: string }[];
+    album: { name: string; images: { url: string }[] };
+  };
+};
+
+export type SavedTracksPage = {
+  items: SavedTracksItem[];
+  next: string | null;
+  total: number;
+};
+
+export async function getSavedTracksPage(offset: number, limit = 50): Promise<SavedTracksPage> {
+  const r = await authedFetch(`/me/tracks?limit=${limit}&offset=${offset}`);
+  if (!r.ok) throw new Error(`getSavedTracksPage failed: ${r.status}`);
+  return (await r.json()) as SavedTracksPage;
+}
+
+export async function createPlaylist(userId: string, name: string, description: string): Promise<string> {
+  const r = await authedFetch(`/users/${encodeURIComponent(userId)}/playlists`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, description, public: false }),
+  });
+  if (!r.ok) throw new Error(`createPlaylist failed: ${r.status} ${await r.text()}`);
+  const data = (await r.json()) as { id: string };
+  return data.id;
+}
+
+export async function addTracksToPlaylist(playlistId: string, trackUris: string[]): Promise<void> {
+  if (trackUris.length === 0) return;
+  const r = await authedFetch(`/playlists/${playlistId}/tracks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ uris: trackUris }),
+  });
+  if (!r.ok) throw new Error(`addTracksToPlaylist failed: ${r.status} ${await r.text()}`);
+}
+
+export async function removeTracksFromPlaylist(playlistId: string, trackUris: string[]): Promise<void> {
+  if (trackUris.length === 0) return;
+  const r = await authedFetch(`/playlists/${playlistId}/tracks`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tracks: trackUris.map((uri) => ({ uri })) }),
+  });
+  if (!r.ok) throw new Error(`removeTracksFromPlaylist failed: ${r.status} ${await r.text()}`);
+}
