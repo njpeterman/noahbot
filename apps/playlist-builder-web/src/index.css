@@ -75,6 +75,20 @@ input {
 .track-current strong { font-size: 1rem; }
 .track-current small { color: var(--muted); font-size: 0.8rem; }
 
+.controls {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  margin: 0.75rem 0;
+}
+.controls button {
+  width: 48px; height: 48px;
+  padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 1.1rem;
+}
+.controls button.primary { width: 56px; height: 56px; font-size: 1.3rem; }
+
 .search form { display: flex; gap: 0.5rem; margin: 1rem 0; }
 .results { list-style: none; padding: 0; margin: 0; }
 .results li {

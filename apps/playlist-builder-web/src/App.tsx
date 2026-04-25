@@ -146,8 +146,9 @@ function EventLog() {
 }
 
 function NowPlaying() {
-  const { deviceId, ready, currentState } = usePlayer();
+  const { deviceId, ready, currentState, player } = usePlayer();
   const t = currentState?.track_window.current_track;
+  const paused = currentState?.paused ?? true;
   return (
     <section className="now-playing">
       <p className="device">
@@ -159,10 +160,21 @@ function NowPlaying() {
           <div>
             <strong>{t.name}</strong>
             <small>{t.artists.map((a) => a.name).join(", ")}</small>
-            <small>{currentState?.paused ? "paused" : "playing"}</small>
+            <small>{paused ? "paused" : "playing"}</small>
           </div>
         </div>
       )}
+      <div className="controls">
+        <button onClick={() => void player?.previousTrack()} disabled={!player}>⏮</button>
+        <button
+          onClick={() => void player?.togglePlay()}
+          disabled={!player}
+          className="primary"
+        >
+          {paused ? "▶" : "⏸"}
+        </button>
+        <button onClick={() => void player?.nextTrack()} disabled={!player}>⏭</button>
+      </div>
       <Search deviceId={deviceId} />
     </section>
   );
