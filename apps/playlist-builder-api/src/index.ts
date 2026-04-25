@@ -181,13 +181,13 @@ app.get("/api/triage/stats", (_req, res) => {
 });
 
 app.get("/api/triage/next", (_req, res) => {
-  // Priority: never-rated songs first (oldest spotify_added_at first), then deferred (oldest defer first).
+  // Priority: never-rated songs first (most recently added first), then deferred (oldest defer first).
   const unrated = db
     .prepare(
       `SELECT l.* FROM liked_songs l
        LEFT JOIN track_ratings r ON r.track_uri = l.track_uri
        WHERE r.track_uri IS NULL
-       ORDER BY l.spotify_added_at ASC
+       ORDER BY l.spotify_added_at DESC
        LIMIT 1`
     )
     .get() as LikedSongRow | undefined;

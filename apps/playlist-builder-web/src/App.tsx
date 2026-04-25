@@ -159,6 +159,13 @@ function NowPlayingPanel({ player }: { player: PlayerHandle }) {
   );
 }
 
+function fmtMs(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${r.toString().padStart(2, "0")}`;
+}
+
 function TriagePanel({ player }: { player: PlayerHandle }) {
   const [song, setSong] = useState<LikedSong | null>(null);
   const [source, setSource] = useState<"unrated" | "deferred" | undefined>(undefined);
@@ -169,6 +176,24 @@ function TriagePanel({ player }: { player: PlayerHandle }) {
   const [adoptInput, setAdoptInput] = useState("");
   const [adoptOpen, setAdoptOpen] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  const paused = player.currentState?.paused ?? true;
+  const duration = player.currentState?.duration ?? 0;
+  const [position, setPosition] = useState(0);
+
+  useEffect(() => {
+    setPosition(player.currentState?.position ?? 0);
+  }, [player.currentState]);
+
+  useEffect(() => {
+    if (paused || !player.player) return;
+    const id = setInterval(() => {
+      void player.player!.getCurrentState().then((s) => {
+        if (s) setPosition(s.position);
+      });
+    }, 500);
+    return () => clearInterval(id);
+  }, [paused, player.player]);
 
   const refreshStats = () => {
     fetchTriageStats().then(setStats).catch(() => {});
@@ -305,7 +330,28 @@ function TriagePanel({ player }: { player: PlayerHandle }) {
             <p className="triage-artists">{artists.join(", ")}</p>
             <p className="triage-album">{song.album}</p>
             {source === "deferred" && <p className="triage-source">↩︎ Re-surfaced from defer</p>}
-            <button onClick={onReplay} className="replay">↻ Replay</button>
+
+            <div className="triage-progress">
+              <span className="time">{fmtMs(position)}</span>
+              <div className="progress-bar">
+                <div
+                  className="progress-fill"
+                  style={{ width: duration > 0 ? `${(position / duration) * 100}%` : "0%" }}
+                />
+              </div>
+              <span className="time">{fmtMs(duration)}</span>
+            </div>
+
+            <div className="triage-playback">
+              <button onClick={onReplay} className="replay">↻ Replay</button>
+              <button
+                onClick={() => void player.player?.togglePlay()}
+                disabled={!player.player}
+                className="primary play-pause"
+              >
+                {paused ? "▶" : "⏸"}
+              </button>
+            </div>
           </div>
 
           <div className="triage-actions">
