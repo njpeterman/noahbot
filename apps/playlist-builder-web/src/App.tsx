@@ -8,6 +8,7 @@ import {
   playTrackUris,
   rateTrack,
   syncLikedSongs,
+  type AdoptRating,
   type PlaylistTrack,
   type Rating,
   type StoredEvent,
@@ -75,6 +76,7 @@ function PlaylistPanel({ player }: { player: PlayerHandle }) {
   const [adopting, setAdopting] = useState(false);
   const [adoptInput, setAdoptInput] = useState("");
   const [adoptOpen, setAdoptOpen] = useState(false);
+  const [adoptAs, setAdoptAs] = useState<AdoptRating>("heavy_rotation");
   const [err, setErr] = useState<string | null>(null);
 
   const paused = player.currentState?.paused ?? true;
@@ -159,11 +161,13 @@ function PlaylistPanel({ player }: { player: PlayerHandle }) {
     setAdopting(true);
     setErr(null);
     try {
-      const { adopted } = await adoptPlaylist(adoptInput.trim());
+      const { adopted, removed_from_hr } = await adoptPlaylist(adoptInput.trim(), adoptAs);
       setAdoptInput("");
       setAdoptOpen(false);
       refreshStats();
-      alert(`Adopted ${adopted} tracks as Heavy Rotation.`);
+      const label = adoptAs === "heavy_rotation" ? "Heavy Rotation" : "Reject";
+      const extra = removed_from_hr > 0 ? ` (${removed_from_hr} removed from Heavy Rotation playlist)` : "";
+      alert(`Adopted ${adopted} tracks as ${label}.${extra}`);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "adopt failed");
     } finally {
@@ -232,6 +236,15 @@ function PlaylistPanel({ player }: { player: PlayerHandle }) {
             placeholder="Spotify playlist URL or ID"
             disabled={adopting}
           />
+          <select
+            value={adoptAs}
+            onChange={(e) => setAdoptAs(e.target.value as AdoptRating)}
+            disabled={adopting}
+            className="adopt-as"
+          >
+            <option value="heavy_rotation">as Heavy Rotation</option>
+            <option value="reject">as Reject</option>
+          </select>
           <button onClick={onAdopt} disabled={adopting || !adoptInput.trim()} className="primary">
             {adopting ? "Adopting…" : "Adopt"}
           </button>

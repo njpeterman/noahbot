@@ -289,28 +289,69 @@ app.get("/api/playlist/build", (_req, res) => {
 });
 
 app.post("/api/triage/adopt-playlist", async (req, res) => {
-  const { playlist } = (req.body ?? {}) as { playlist?: string };
+  const { playlist, rating = "heavy_rotation" } = (req.body ?? {}) as {
+    playlist?: string;
+    rating?: "heavy_rotation" | "reject";
+  };
   const playlistId = playlist ? parsePlaylistId(playlist) : null;
   if (!playlistId) {
     return res.status(400).json({ error: "invalid_playlist" });
+  }
+  if (rating !== "heavy_rotation" && rating !== "reject") {
+    return res.status(400).json({ error: "invalid_rating" });
   }
 
   try {
     const uris = await getAllPlaylistTrackUris(playlistId);
     const now = new Date().toISOString();
+
+    let toRemoveFromHR: string[] = [];
+    if (rating === "reject" && uris.length > 0) {
+      const CHUNK = 500;
+      for (let i = 0; i < uris.length; i += CHUNK) {
+        const chunk = uris.slice(i, i + CHUNK);
+        const placeholders = chunk.map(() => "?").join(",");
+        const rows = db
+          .prepare(
+            `SELECT track_uri FROM track_ratings WHERE rating = 'heavy_rotation' AND track_uri IN (${placeholders})`
+          )
+          .all(...chunk) as Array<{ track_uri: string }>;
+        toRemoveFromHR.push(...rows.map((r) => r.track_uri));
+      }
+    }
+
     const tx = db.transaction((trackUris: string[]) => {
       for (const uri of trackUris) {
         upsertRating.run({
           track_uri: uri,
-          rating: "heavy_rotation",
+          rating,
           rated_at: now,
           defer_count: 0,
         });
       }
     });
     tx(uris);
-    setHeavyRotationPlaylistId(playlistId);
-    res.json({ ok: true, adopted: uris.length, playlist_id: playlistId });
+
+    if (rating === "heavy_rotation") {
+      setHeavyRotationPlaylistId(playlistId);
+    } else if (toRemoveFromHR.length > 0) {
+      const auth = getAuth();
+      if (auth?.heavy_rotation_playlist_id) {
+        for (let i = 0; i < toRemoveFromHR.length; i += 100) {
+          await removeTracksFromPlaylist(
+            auth.heavy_rotation_playlist_id,
+            toRemoveFromHR.slice(i, i + 100)
+          );
+        }
+      }
+    }
+
+    res.json({
+      ok: true,
+      adopted: uris.length,
+      rating,
+      removed_from_hr: toRemoveFromHR.length,
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "unknown";
     res.status(500).json({ error: msg });

@@ -264,6 +264,15 @@ input {
   display: flex;
   gap: 0.5rem;
   margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+.adopt-as {
+  font: inherit;
+  background: var(--card);
+  color: var(--fg);
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
 }
 
 .triage-empty {
