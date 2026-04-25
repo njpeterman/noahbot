@@ -211,6 +211,15 @@ input {
   justify-content: center;
   font-size: 1.2rem;
 }
+.triage-playback .seek,
+.triage-playback .replay {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 
 .triage-actions {
   display: grid;

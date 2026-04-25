@@ -7,18 +7,18 @@ import {
   fetchTriageStats,
   playTrack,
   rateTrack,
-  searchTracks,
   syncLikedSongs,
   type LikedSong,
   type Rating,
   type StoredEvent,
-  type Track,
   type TriageStats,
 } from "./api";
 import { usePlayer } from "./player";
 
 type AuthStatus = "unknown" | "authed" | "anon" | "error";
-type Tab = "play" | "triage" | "events";
+type Tab = "triage" | "events";
+
+const SEEK_MS = 15_000;
 
 function useAuthStatus(): [AuthStatus, () => void] {
   const [status, setStatus] = useState<AuthStatus>("unknown");
@@ -60,104 +60,6 @@ function CallbackHandler({ onDone }: { onDone: () => void }) {
 }
 
 type PlayerHandle = ReturnType<typeof usePlayer>;
-
-function Search({ deviceId }: { deviceId: string | null }) {
-  const [q, setQ] = useState("");
-  const [results, setResults] = useState<Track[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  const onSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
-    setErr(null);
-    try {
-      setResults(await searchTracks(q));
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "search failed");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const onPlay = async (uri: string) => {
-    if (!deviceId) {
-      setErr("Player not ready yet — wait a moment.");
-      return;
-    }
-    try {
-      await playTrack(deviceId, uri);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "play failed");
-    }
-  };
-
-  return (
-    <section className="search">
-      <form onSubmit={onSubmit}>
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search tracks…"
-        />
-        <button type="submit" disabled={busy || !q.trim()}>
-          Search
-        </button>
-      </form>
-      {err && <p className="error">{err}</p>}
-      <ul className="results">
-        {results.map((t) => (
-          <li key={t.uri}>
-            <button onClick={() => onPlay(t.uri)} className="play">
-              ▶
-            </button>
-            <span className="track">
-              <strong>{t.name}</strong>
-              <small>{t.artists.map((a) => a.name).join(", ")}</small>
-            </span>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-function NowPlayingPanel({ player }: { player: PlayerHandle }) {
-  const t = player.currentState?.track_window.current_track;
-  const paused = player.currentState?.paused ?? true;
-  return (
-    <section className="now-playing">
-      <p className="device">
-        Device:{" "}
-        <span className={player.ready ? "ok" : "warn"}>
-          {player.ready ? `ready (${player.deviceId?.slice(0, 8)}…)` : "connecting…"}
-        </span>
-      </p>
-      {t && (
-        <div className="track-current">
-          {t.album?.images?.[0] && <img src={t.album.images[0].url} alt="" width={64} height={64} />}
-          <div>
-            <strong>{t.name}</strong>
-            <small>{t.artists.map((a) => a.name).join(", ")}</small>
-            <small>{paused ? "paused" : "playing"}</small>
-          </div>
-        </div>
-      )}
-      <div className="controls">
-        <button onClick={() => void player.player?.previousTrack()} disabled={!player.player}>⏮</button>
-        <button
-          onClick={() => void player.player?.togglePlay()}
-          disabled={!player.player}
-          className="primary"
-        >
-          {paused ? "▶" : "⏸"}
-        </button>
-        <button onClick={() => void player.player?.nextTrack()} disabled={!player.player}>⏭</button>
-      </div>
-      <Search deviceId={player.deviceId} />
-    </section>
-  );
-}
 
 function fmtMs(ms: number): string {
   const s = Math.max(0, Math.floor(ms / 1000));
@@ -343,13 +245,29 @@ function TriagePanel({ player }: { player: PlayerHandle }) {
             </div>
 
             <div className="triage-playback">
-              <button onClick={onReplay} className="replay">↻ Replay</button>
+              <button onClick={onReplay} className="replay" title="Replay from start">↻</button>
+              <button
+                onClick={() => void player.player?.seek(Math.max(0, position - SEEK_MS))}
+                disabled={!player.player}
+                className="seek"
+                title="Back 15s"
+              >
+                ⏪
+              </button>
               <button
                 onClick={() => void player.player?.togglePlay()}
                 disabled={!player.player}
                 className="primary play-pause"
               >
                 {paused ? "▶" : "⏸"}
+              </button>
+              <button
+                onClick={() => void player.player?.seek(Math.min(duration, position + SEEK_MS))}
+                disabled={!player.player}
+                className="seek"
+                title="Forward 15s"
+              >
+                ⏩
               </button>
             </div>
           </div>
@@ -435,12 +353,10 @@ function AuthedApp({ onLogout }: { onLogout: () => void }) {
 
       <nav className="tabs">
         <button onClick={() => setTab("triage")} className={tab === "triage" ? "active" : ""}>Triage</button>
-        <button onClick={() => setTab("play")} className={tab === "play" ? "active" : ""}>Play</button>
         <button onClick={() => setTab("events")} className={tab === "events" ? "active" : ""}>Events</button>
       </nav>
 
       {tab === "triage" && <TriagePanel player={player} />}
-      {tab === "play" && <NowPlayingPanel player={player} />}
       {tab === "events" && <EventLog />}
     </>
   );
