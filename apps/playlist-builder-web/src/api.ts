@@ -1,0 +1,68 @@
+import { fetchAccessToken } from "./auth";
+
+export type Track = {
+  uri: string;
+  name: string;
+  artists: { name: string }[];
+  album: { name: string; images: { url: string }[] };
+  duration_ms: number;
+};
+
+export async function searchTracks(query: string): Promise<Track[]> {
+  if (!query.trim()) return [];
+  const token = await fetchAccessToken();
+  const params = new URLSearchParams({ q: query, type: "track", limit: "20" });
+  const r = await fetch(`https://api.spotify.com/v1/search?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!r.ok) throw new Error(`spotify_search_failed: ${r.status}`);
+  const data = (await r.json()) as { tracks: { items: Track[] } };
+  return data.tracks.items;
+}
+
+export async function playTrack(deviceId: string, trackUri: string): Promise<void> {
+  const token = await fetchAccessToken();
+  const r = await fetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ uris: [trackUri] }),
+  });
+  if (!r.ok && r.status !== 204) {
+    const text = await r.text();
+    throw new Error(`play_failed: ${r.status} ${text}`);
+  }
+}
+
+export type PlaybackEvent = {
+  ts?: string;
+  event_type: string;
+  track_uri?: string | null;
+  track_name?: string | null;
+  artists?: string[] | null;
+  album?: string | null;
+  position_ms?: number | null;
+  duration_ms?: number | null;
+  paused?: boolean | null;
+  context_uri?: string | null;
+  raw_state?: unknown;
+};
+
+export async function logEvent(event: PlaybackEvent): Promise<void> {
+  await fetch("/api/events", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(event),
+  });
+}
+
+export type StoredEvent = PlaybackEvent & { id: number; ts: string };
+
+export async function fetchEvents(limit = 50): Promise<StoredEvent[]> {
+  const r = await fetch(`/api/events?limit=${limit}`);
+  if (!r.ok) throw new Error("events_fetch_failed");
+  const data = (await r.json()) as { events: StoredEvent[] };
+  return data.events;
+}

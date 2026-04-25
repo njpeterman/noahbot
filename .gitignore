@@ -23,4 +23,7 @@ Thumbs.db
 # Local SQLite DBs
 *.sqlite
 *.sqlite3
+*.sqlite-wal
+*.sqlite-shm
 *.db
+apps/*/data/

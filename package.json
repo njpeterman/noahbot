@@ -11,8 +11,11 @@
     "dev": "npm run dev --workspaces --if-present",
     "dev:api": "npm run dev --workspace apps/daily-eats-api",
     "dev:web": "npm run dev --workspace apps/daily-eats-web",
+    "dev:playlist-api": "npm run dev --workspace apps/playlist-builder-api",
+    "dev:playlist-web": "npm run dev --workspace apps/playlist-builder-web",
     "build": "npm run build --workspaces --if-present",
     "start:api": "npm run start --workspace apps/daily-eats-api",
+    "start:playlist-api": "npm run start --workspace apps/playlist-builder-api",
     "typecheck": "npm run typecheck --workspaces --if-present"
   },
   "engines": {
