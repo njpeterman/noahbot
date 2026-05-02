@@ -171,8 +171,13 @@ function LyricsPanel({
     const el = lineRefs.current[currentIdx];
     const container = containerRef.current;
     if (!el || !container) return;
-    const elTop = el.offsetTop;
-    const target = elTop - container.clientHeight / 2 + el.clientHeight / 2;
+    const elRect = el.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    const target =
+      container.scrollTop +
+      (elRect.top - containerRect.top) -
+      container.clientHeight / 2 +
+      el.clientHeight / 2;
     container.scrollTo({ top: target, behavior: "smooth" });
   }, [currentIdx]);
 
