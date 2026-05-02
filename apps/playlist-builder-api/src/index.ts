@@ -255,14 +255,19 @@ app.get("/api/playlist/build", (_req, res) => {
     )
     .all() as LikedSongWithRating[];
 
+  // Recency bias: sample randomly from the 30 most-recently-added undecided songs,
+  // not from the entire backlog. Keeps freshly-liked tracks in rotation for triage.
   const unratedPool = db
     .prepare(
-      `SELECT l.*, r.rating as rating
-       FROM liked_songs l
-       LEFT JOIN track_ratings r ON r.track_uri = l.track_uri
-       WHERE r.rating IS NULL OR r.rating = 'defer'
-       ORDER BY RANDOM()
-       LIMIT 60`
+      `SELECT * FROM (
+         SELECT l.*, r.rating as rating
+         FROM liked_songs l
+         LEFT JOIN track_ratings r ON r.track_uri = l.track_uri
+         WHERE r.rating IS NULL OR r.rating = 'defer'
+         ORDER BY l.spotify_added_at DESC
+         LIMIT 30
+       )
+       ORDER BY RANDOM()`
     )
     .all() as LikedSongWithRating[];
 
