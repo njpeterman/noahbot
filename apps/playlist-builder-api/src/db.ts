@@ -59,6 +59,15 @@ db.exec(`
     rated_at TEXT NOT NULL,
     defer_count INTEGER NOT NULL DEFAULT 0
   );
+
+  CREATE TABLE IF NOT EXISTS track_lyrics (
+    track_uri TEXT PRIMARY KEY,
+    synced INTEGER NOT NULL DEFAULT 0,
+    synced_lyrics TEXT,
+    plain_lyrics TEXT,
+    not_found INTEGER NOT NULL DEFAULT 0,
+    fetched_at TEXT NOT NULL
+  );
 `);
 
 // Migration: add heavy_rotation_playlist_id column to existing dbs
@@ -122,4 +131,32 @@ export function setSpotifyUserId(userId: string) {
 
 export function setHeavyRotationPlaylistId(playlistId: string) {
   db.prepare("UPDATE spotify_auth SET heavy_rotation_playlist_id = ? WHERE id = 1").run(playlistId);
+}
+
+export type TrackLyricsRow = {
+  track_uri: string;
+  synced: number;
+  synced_lyrics: string | null;
+  plain_lyrics: string | null;
+  not_found: number;
+  fetched_at: string;
+};
+
+export function getLyrics(trackUri: string): TrackLyricsRow | undefined {
+  return db.prepare("SELECT * FROM track_lyrics WHERE track_uri = ?").get(trackUri) as
+    | TrackLyricsRow
+    | undefined;
+}
+
+export function saveLyrics(row: Omit<TrackLyricsRow, "fetched_at">) {
+  db.prepare(`
+    INSERT INTO track_lyrics (track_uri, synced, synced_lyrics, plain_lyrics, not_found, fetched_at)
+    VALUES (@track_uri, @synced, @synced_lyrics, @plain_lyrics, @not_found, @fetched_at)
+    ON CONFLICT(track_uri) DO UPDATE SET
+      synced = excluded.synced,
+      synced_lyrics = excluded.synced_lyrics,
+      plain_lyrics = excluded.plain_lyrics,
+      not_found = excluded.not_found,
+      fetched_at = excluded.fetched_at
+  `).run({ ...row, fetched_at: new Date().toISOString() });
 }

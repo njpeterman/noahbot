@@ -3,7 +3,9 @@ import express from "express";
 import {
   db,
   getAuth,
+  getLyrics,
   saveAuth,
+  saveLyrics,
   setHeavyRotationPlaylistId,
   setSpotifyUserId,
   type LikedSongRow,
@@ -395,6 +397,102 @@ app.post("/api/triage/rate", async (req, res) => {
   } catch (e) {
     const msg = e instanceof Error ? e.message : "unknown";
     res.status(500).json({ error: `rating_saved_but_playlist_sync_failed: ${msg}` });
+  }
+});
+
+const LRCLIB_UA = "noahbot-playlist-builder/0.1 (https://github.com/noahpete)";
+
+type LrclibResponse = {
+  id: number;
+  trackName: string;
+  artistName: string;
+  albumName: string | null;
+  duration: number | null;
+  instrumental: boolean;
+  plainLyrics: string | null;
+  syncedLyrics: string | null;
+};
+
+app.post("/api/lyrics", async (req, res) => {
+  const { track_uri, track_name, artists, album, duration_ms } = (req.body ?? {}) as {
+    track_uri?: string;
+    track_name?: string;
+    artists?: string[];
+    album?: string;
+    duration_ms?: number;
+  };
+  if (!track_uri) return res.status(400).json({ error: "missing_track_uri" });
+
+  const cached = getLyrics(track_uri);
+  if (cached) {
+    if (cached.not_found) return res.json({ found: false });
+    return res.json({
+      found: true,
+      synced: !!cached.synced,
+      synced_lyrics: cached.synced_lyrics,
+      plain_lyrics: cached.plain_lyrics,
+    });
+  }
+
+  if (!track_name || !artists || artists.length === 0) {
+    return res.status(400).json({ error: "missing_metadata" });
+  }
+
+  const params = new URLSearchParams({
+    track_name,
+    artist_name: artists.join(", "),
+  });
+  if (album) params.set("album_name", album);
+  if (typeof duration_ms === "number" && duration_ms > 0) {
+    params.set("duration", Math.round(duration_ms / 1000).toString());
+  }
+
+  try {
+    const r = await fetch(`https://lrclib.net/api/get?${params.toString()}`, {
+      headers: { "User-Agent": LRCLIB_UA },
+    });
+    if (r.status === 404) {
+      saveLyrics({
+        track_uri,
+        synced: 0,
+        synced_lyrics: null,
+        plain_lyrics: null,
+        not_found: 1,
+      });
+      return res.json({ found: false });
+    }
+    if (!r.ok) {
+      return res.status(502).json({ error: `lrclib_${r.status}` });
+    }
+    const data = (await r.json()) as LrclibResponse;
+    const synced = !!data.syncedLyrics;
+    const plain = data.plainLyrics ?? null;
+    if (!synced && !plain) {
+      saveLyrics({
+        track_uri,
+        synced: 0,
+        synced_lyrics: null,
+        plain_lyrics: null,
+        not_found: 1,
+      });
+      return res.json({ found: false });
+    }
+    saveLyrics({
+      track_uri,
+      synced: synced ? 1 : 0,
+      synced_lyrics: data.syncedLyrics,
+      plain_lyrics: plain,
+      not_found: 0,
+    });
+    res.json({
+      found: true,
+      synced,
+      synced_lyrics: data.syncedLyrics,
+      plain_lyrics: plain,
+    });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "unknown";
+    res.status(502).json({ error: `lrclib_fetch_failed: ${msg}` });
   }
 });
 

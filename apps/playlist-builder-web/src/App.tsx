@@ -1,14 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { exchangeCodeForTokens, login, logout } from "./auth";
 import {
   adoptPlaylist,
   buildPlaylist,
   fetchEvents,
+  fetchLyrics,
   fetchTriageStats,
   playTrackUris,
   rateTrack,
   syncLikedSongs,
   type AdoptRating,
+  type LyricsResponse,
   type PlaylistTrack,
   type Rating,
   type StoredEvent,
@@ -65,6 +67,151 @@ function fmtMs(ms: number): string {
   const m = Math.floor(s / 60);
   const r = s % 60;
   return `${m}:${r.toString().padStart(2, "0")}`;
+}
+
+type SyncedLine = { time_ms: number; text: string };
+
+const LRC_TIMESTAMP_RE = /\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\]/g;
+
+function parseLrc(lrc: string): SyncedLine[] {
+  const lines: SyncedLine[] = [];
+  for (const raw of lrc.split(/\r?\n/)) {
+    LRC_TIMESTAMP_RE.lastIndex = 0;
+    const stamps: number[] = [];
+    let match: RegExpExecArray | null;
+    let lastIdx = 0;
+    while ((match = LRC_TIMESTAMP_RE.exec(raw)) !== null) {
+      const m = Number(match[1]);
+      const s = Number(match[2]);
+      const fracStr = match[3] ?? "0";
+      const frac = Number(fracStr.padEnd(3, "0").slice(0, 3));
+      stamps.push((m * 60 + s) * 1000 + frac);
+      lastIdx = match.index + match[0].length;
+    }
+    if (stamps.length === 0) continue;
+    const text = raw.slice(lastIdx).trim();
+    for (const t of stamps) lines.push({ time_ms: t, text });
+  }
+  lines.sort((a, b) => a.time_ms - b.time_ms);
+  return lines;
+}
+
+function findCurrentLineIdx(lines: SyncedLine[], position_ms: number): number {
+  if (lines.length === 0) return -1;
+  let lo = 0;
+  let hi = lines.length - 1;
+  let ans = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (lines[mid]!.time_ms <= position_ms) {
+      ans = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return ans;
+}
+
+function LyricsPanel({
+  trackUri,
+  trackName,
+  artists,
+  album,
+  durationMs,
+  positionMs,
+}: {
+  trackUri: string;
+  trackName: string;
+  artists: string[];
+  album: string | null;
+  durationMs: number | null;
+  positionMs: number;
+}) {
+  const [data, setData] = useState<LyricsResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setData(null);
+    setLoading(true);
+    fetchLyrics({
+      track_uri: trackUri,
+      track_name: trackName,
+      artists,
+      album,
+      duration_ms: durationMs,
+    })
+      .then((d) => {
+        if (!cancelled) setData(d);
+      })
+      .catch(() => {
+        if (!cancelled) setData({ found: false });
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [trackUri]);
+
+  const synced = useMemo<SyncedLine[] | null>(() => {
+    if (!data || !data.found || !data.synced || !data.synced_lyrics) return null;
+    return parseLrc(data.synced_lyrics);
+  }, [data]);
+
+  const currentIdx = synced ? findCurrentLineIdx(synced, positionMs) : -1;
+
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const lineRefs = useRef<Array<HTMLDivElement | null>>([]);
+
+  useEffect(() => {
+    if (currentIdx < 0) return;
+    const el = lineRefs.current[currentIdx];
+    const container = containerRef.current;
+    if (!el || !container) return;
+    const elTop = el.offsetTop;
+    const target = elTop - container.clientHeight / 2 + el.clientHeight / 2;
+    container.scrollTo({ top: target, behavior: "smooth" });
+  }, [currentIdx]);
+
+  if (loading && !data) {
+    return <div className="lyrics-panel lyrics-status">Loading lyrics…</div>;
+  }
+  if (!data || !data.found) return null;
+
+  if (synced) {
+    return (
+      <div className="lyrics-panel" ref={containerRef}>
+        {synced.map((line, i) => (
+          <div
+            key={i}
+            ref={(el) => {
+              lineRefs.current[i] = el;
+            }}
+            className={`lyrics-line${i === currentIdx ? " current" : ""}`}
+          >
+            {line.text || " "}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (data.plain_lyrics) {
+    return (
+      <div className="lyrics-panel lyrics-plain">
+        {data.plain_lyrics.split(/\r?\n/).map((line, i) => (
+          <div key={i} className="lyrics-line">
+            {line || " "}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return null;
 }
 
 function PlaylistPanel({ player }: { player: PlayerHandle }) {
@@ -344,6 +491,17 @@ function PlaylistPanel({ player }: { player: PlayerHandle }) {
                 🔥 Heavy Rotation
               </button>
             </div>
+          )}
+
+          {sdkUri && sdkTrack && (
+            <LyricsPanel
+              trackUri={sdkUri}
+              trackName={sdkTrack.name}
+              artists={sdkTrack.artists.map((a) => a.name)}
+              album={sdkTrack.album?.name ?? null}
+              durationMs={duration || null}
+              positionMs={position}
+            />
           )}
 
           <div className="queue-meta">

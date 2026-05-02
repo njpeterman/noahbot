@@ -289,6 +289,39 @@ input {
   font-size: 0.85rem;
 }
 
+.lyrics-panel {
+  background: var(--card);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  margin-top: 1rem;
+  height: 280px;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+.lyrics-panel.lyrics-status {
+  color: var(--muted);
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+}
+.lyrics-line {
+  color: var(--muted);
+  padding: 0.15rem 0;
+  transition: color 0.2s ease;
+}
+.lyrics-line.current {
+  color: var(--fg);
+  font-weight: 700;
+}
+.lyrics-plain .lyrics-line {
+  color: var(--fg);
+  opacity: 0.85;
+}
+
 .queue-meta {
   display: flex;
   justify-content: space-between;

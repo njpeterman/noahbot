@@ -138,6 +138,26 @@ export async function buildPlaylist(): Promise<{ tracks: PlaylistTrack[]; total_
   return (await r.json()) as { tracks: PlaylistTrack[]; total_ms: number };
 }
 
+export type LyricsResponse =
+  | { found: false }
+  | { found: true; synced: boolean; synced_lyrics: string | null; plain_lyrics: string | null };
+
+export async function fetchLyrics(input: {
+  track_uri: string;
+  track_name: string;
+  artists: string[];
+  album?: string | null;
+  duration_ms?: number | null;
+}): Promise<LyricsResponse> {
+  const r = await fetch("/api/lyrics", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!r.ok) throw new Error(`lyrics_failed: ${r.status}`);
+  return (await r.json()) as LyricsResponse;
+}
+
 export async function rateTrack(track_uri: string, rating: Rating): Promise<void> {
   const r = await fetch("/api/triage/rate", {
     method: "POST",
