@@ -1,0 +1,14 @@
+[Unit]
+Description=noahbot playlist-builder API (dev)
+
+[Service]
+Type=simple
+WorkingDirectory=/home/noah/noahbot
+ExecStart=/bin/bash -lc 'exec npm run dev:playlist-api'
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
