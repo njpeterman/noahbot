@@ -46,6 +46,53 @@ function snapshotFrom(state: Spotify.PlaybackState): Diff {
   };
 }
 
+function updateMediaSession(state: Spotify.PlaybackState) {
+  if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+  const t = state.track_window.current_track;
+  if (!t) return;
+  const artwork = (t.album?.images ?? [])
+    .filter((img) => !!img.url)
+    .map((img) => {
+      const size = img.width && img.height ? `${img.width}x${img.height}` : "512x512";
+      return { src: img.url, sizes: size, type: "image/jpeg" };
+    });
+  navigator.mediaSession.metadata = new MediaMetadata({
+    title: t.name ?? "",
+    artist: t.artists?.map((a) => a.name).join(", ") ?? "",
+    album: t.album?.name ?? "",
+    artwork,
+  });
+  navigator.mediaSession.playbackState = state.paused ? "paused" : "playing";
+  try {
+    if (state.duration > 0) {
+      navigator.mediaSession.setPositionState({
+        duration: state.duration / 1000,
+        position: Math.min(state.position, state.duration) / 1000,
+        playbackRate: 1,
+      });
+    }
+  } catch {
+    // setPositionState throws if values are out of range — safe to ignore
+  }
+}
+
+function bindMediaSessionActions(player: Spotify.Player) {
+  if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
+  const ms = navigator.mediaSession;
+  ms.setActionHandler("play", () => void player.resume());
+  ms.setActionHandler("pause", () => void player.pause());
+  ms.setActionHandler("previoustrack", () => void player.previousTrack());
+  ms.setActionHandler("nexttrack", () => void player.nextTrack());
+  ms.setActionHandler("seekto", (details) => {
+    if (typeof details.seekTime === "number") {
+      void player.seek(details.seekTime * 1000);
+    }
+  });
+  // Explicitly disable 10s seek so iOS shows prev/next buttons instead
+  try { ms.setActionHandler("seekbackward", null); } catch { /* not all browsers */ }
+  try { ms.setActionHandler("seekforward", null); } catch { /* not all browsers */ }
+}
+
 function classify(prev: Diff | null, next: Diff): string {
   if (!prev) return "session_start";
   if (prev.track_uri !== next.track_uri) {
@@ -101,12 +148,15 @@ export function usePlayer() {
       player.addListener("player_state_changed", (state) => {
         if (!state) return;
         setCurrentState(state);
+        updateMediaSession(state);
         const next = snapshotFrom(state);
         const event_type = classify(prevSnapshot.current, next);
         prevSnapshot.current = next;
         if (event_type === "progress") return; // skip noisy progress-only updates
         void logEvent({ ...next, event_type, raw_state: state });
       });
+
+      bindMediaSessionActions(player);
 
       player.connect();
     })();
