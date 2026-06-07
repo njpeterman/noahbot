@@ -76,11 +76,29 @@ function updateMediaSession(state: Spotify.PlaybackState) {
   }
 }
 
-function bindMediaSessionActions(player: Spotify.Player) {
+function syncSilentAudio(audio: HTMLAudioElement | null, paused: boolean) {
+  if (!audio) return;
+  if (paused) {
+    audio.pause();
+  } else if (audio.paused) {
+    void audio.play().catch(() => { /* autoplay may be blocked before user gesture */ });
+  }
+}
+
+function bindMediaSessionActions(
+  player: Spotify.Player,
+  silentAudioRef: { current: HTMLAudioElement | null },
+) {
   if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
   const ms = navigator.mediaSession;
-  ms.setActionHandler("play", () => void player.resume());
-  ms.setActionHandler("pause", () => void player.pause());
+  ms.setActionHandler("play", () => {
+    syncSilentAudio(silentAudioRef.current, false);
+    void player.resume();
+  });
+  ms.setActionHandler("pause", () => {
+    syncSilentAudio(silentAudioRef.current, true);
+    void player.pause();
+  });
   ms.setActionHandler("previoustrack", () => void player.previousTrack());
   ms.setActionHandler("nexttrack", () => void player.nextTrack());
   ms.setActionHandler("seekto", (details) => {
@@ -112,10 +130,20 @@ export function usePlayer() {
   const [ready, setReady] = useState(false);
   const [currentState, setCurrentState] = useState<Spotify.PlaybackState | null>(null);
   const playerRef = useRef<Spotify.Player | null>(null);
+  const silentAudioRef = useRef<HTMLAudioElement | null>(null);
   const prevSnapshot = useRef<Diff | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+
+    // Silent looping audio on the parent page. Without this, iOS attaches its
+    // Now Playing card to the cross-origin Spotify iframe (sdk.scdn.co) and
+    // ignores our navigator.mediaSession overrides. With it, the parent page
+    // owns active media and iOS uses our metadata + action handlers.
+    const silent = new Audio("/silent.wav");
+    silent.loop = true;
+    silent.preload = "auto";
+    silentAudioRef.current = silent;
 
     (async () => {
       await loadSdk();
@@ -149,6 +177,7 @@ export function usePlayer() {
         if (!state) return;
         setCurrentState(state);
         updateMediaSession(state);
+        syncSilentAudio(silentAudioRef.current, state.paused);
         const next = snapshotFrom(state);
         const event_type = classify(prevSnapshot.current, next);
         prevSnapshot.current = next;
@@ -156,7 +185,7 @@ export function usePlayer() {
         void logEvent({ ...next, event_type, raw_state: state });
       });
 
-      bindMediaSessionActions(player);
+      bindMediaSessionActions(player, silentAudioRef);
 
       player.connect();
     })();
@@ -165,6 +194,8 @@ export function usePlayer() {
       cancelled = true;
       playerRef.current?.disconnect();
       playerRef.current = null;
+      silentAudioRef.current?.pause();
+      silentAudioRef.current = null;
     };
   }, []);
 
