@@ -76,13 +76,9 @@ function updateMediaSession(state: Spotify.PlaybackState) {
   }
 }
 
-function syncSilentAudio(audio: HTMLAudioElement | null, paused: boolean) {
-  if (!audio) return;
-  if (paused) {
-    audio.pause();
-  } else if (audio.paused) {
-    void audio.play().catch(() => { /* autoplay may be blocked before user gesture */ });
-  }
+function ensureSilentAudioPlaying(audio: HTMLAudioElement | null) {
+  if (!audio || !audio.paused) return;
+  void audio.play().catch(() => { /* autoplay may be blocked before first user gesture */ });
 }
 
 function bindMediaSessionActions(
@@ -92,15 +88,23 @@ function bindMediaSessionActions(
   if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
   const ms = navigator.mediaSession;
   ms.setActionHandler("play", () => {
-    syncSilentAudio(silentAudioRef.current, false);
+    ensureSilentAudioPlaying(silentAudioRef.current);
+    ms.playbackState = "playing";
     void player.resume();
   });
   ms.setActionHandler("pause", () => {
-    syncSilentAudio(silentAudioRef.current, true);
+    ensureSilentAudioPlaying(silentAudioRef.current);
+    ms.playbackState = "paused";
     void player.pause();
   });
-  ms.setActionHandler("previoustrack", () => void player.previousTrack());
-  ms.setActionHandler("nexttrack", () => void player.nextTrack());
+  ms.setActionHandler("previoustrack", () => {
+    ensureSilentAudioPlaying(silentAudioRef.current);
+    void player.previousTrack();
+  });
+  ms.setActionHandler("nexttrack", () => {
+    ensureSilentAudioPlaying(silentAudioRef.current);
+    void player.nextTrack();
+  });
   ms.setActionHandler("seekto", (details) => {
     if (typeof details.seekTime === "number") {
       void player.seek(details.seekTime * 1000);
@@ -177,7 +181,10 @@ export function usePlayer() {
         if (!state) return;
         setCurrentState(state);
         updateMediaSession(state);
-        syncSilentAudio(silentAudioRef.current, state.paused);
+        // Keep silent audio running for the lifetime of the session so the
+        // parent page always owns iOS's Now Playing card. We never pause it —
+        // pausing would let the Spotify iframe momentarily reclaim the card.
+        if (!state.paused) ensureSilentAudioPlaying(silentAudioRef.current);
         const next = snapshotFrom(state);
         const event_type = classify(prevSnapshot.current, next);
         prevSnapshot.current = next;
