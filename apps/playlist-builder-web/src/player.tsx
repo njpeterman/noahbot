@@ -81,29 +81,47 @@ function ensureSilentAudioPlaying(audio: HTMLAudioElement | null) {
   void audio.play().catch(() => { /* autoplay may be blocked before first user gesture */ });
 }
 
+// After the Spotify iframe transitions state (which can briefly steal iOS's
+// Now Playing card), re-anchor the parent's mediaSession over several frames.
+function reaffirmSession(
+  silentAudioRef: { current: HTMLAudioElement | null },
+  lastStateRef: { current: Spotify.PlaybackState | null },
+) {
+  const apply = () => {
+    ensureSilentAudioPlaying(silentAudioRef.current);
+    if (lastStateRef.current) updateMediaSession(lastStateRef.current);
+  };
+  apply();
+  // Multiple delayed re-applications to outlast any iframe-side transitions
+  setTimeout(apply, 50);
+  setTimeout(apply, 250);
+  setTimeout(apply, 600);
+}
+
 function bindMediaSessionActions(
   player: Spotify.Player,
   silentAudioRef: { current: HTMLAudioElement | null },
+  lastStateRef: { current: Spotify.PlaybackState | null },
 ) {
   if (typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
   const ms = navigator.mediaSession;
   ms.setActionHandler("play", () => {
-    ensureSilentAudioPlaying(silentAudioRef.current);
     ms.playbackState = "playing";
     void player.resume();
+    reaffirmSession(silentAudioRef, lastStateRef);
   });
   ms.setActionHandler("pause", () => {
-    ensureSilentAudioPlaying(silentAudioRef.current);
     ms.playbackState = "paused";
     void player.pause();
+    reaffirmSession(silentAudioRef, lastStateRef);
   });
   ms.setActionHandler("previoustrack", () => {
-    ensureSilentAudioPlaying(silentAudioRef.current);
     void player.previousTrack();
+    reaffirmSession(silentAudioRef, lastStateRef);
   });
   ms.setActionHandler("nexttrack", () => {
-    ensureSilentAudioPlaying(silentAudioRef.current);
     void player.nextTrack();
+    reaffirmSession(silentAudioRef, lastStateRef);
   });
   ms.setActionHandler("seekto", (details) => {
     if (typeof details.seekTime === "number") {
@@ -135,6 +153,7 @@ export function usePlayer() {
   const [currentState, setCurrentState] = useState<Spotify.PlaybackState | null>(null);
   const playerRef = useRef<Spotify.Player | null>(null);
   const silentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const lastStateRef = useRef<Spotify.PlaybackState | null>(null);
   const prevSnapshot = useRef<Diff | null>(null);
 
   useEffect(() => {
@@ -179,6 +198,7 @@ export function usePlayer() {
 
       player.addListener("player_state_changed", (state) => {
         if (!state) return;
+        lastStateRef.current = state;
         setCurrentState(state);
         updateMediaSession(state);
         // Keep silent audio running for the lifetime of the session so the
@@ -192,7 +212,7 @@ export function usePlayer() {
         void logEvent({ ...next, event_type, raw_state: state });
       });
 
-      bindMediaSessionActions(player, silentAudioRef);
+      bindMediaSessionActions(player, silentAudioRef, lastStateRef);
 
       player.connect();
     })();
