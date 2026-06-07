@@ -82,20 +82,34 @@ function ensureSilentAudioPlaying(audio: HTMLAudioElement | null) {
 }
 
 // After the Spotify iframe transitions state (which can briefly steal iOS's
-// Now Playing card), re-anchor the parent's mediaSession over several frames.
-function reaffirmSession(
+// Now Playing card), force the parent's audio to also transition so iOS
+// re-attaches to our session. A no-op .play() on already-playing audio isn't
+// enough — iOS needs a fresh play event, so we pause+play.
+async function reanchorParentSession(
   silentAudioRef: { current: HTMLAudioElement | null },
   lastStateRef: { current: Spotify.PlaybackState | null },
 ) {
-  const apply = () => {
-    ensureSilentAudioPlaying(silentAudioRef.current);
-    if (lastStateRef.current) updateMediaSession(lastStateRef.current);
-  };
-  apply();
-  // Multiple delayed re-applications to outlast any iframe-side transitions
-  setTimeout(apply, 50);
-  setTimeout(apply, 250);
-  setTimeout(apply, 600);
+  const audio = silentAudioRef.current;
+  if (audio) {
+    try {
+      audio.pause();
+      await audio.play();
+    } catch {
+      // AbortError if pause+play overlap with another call — safe to ignore
+    }
+  }
+  if (lastStateRef.current) updateMediaSession(lastStateRef.current);
+}
+
+function scheduleReanchor(
+  silentAudioRef: { current: HTMLAudioElement | null },
+  lastStateRef: { current: Spotify.PlaybackState | null },
+) {
+  // Fire several reanchors to outlast any iframe-side transitions
+  void reanchorParentSession(silentAudioRef, lastStateRef);
+  setTimeout(() => void reanchorParentSession(silentAudioRef, lastStateRef), 200);
+  setTimeout(() => void reanchorParentSession(silentAudioRef, lastStateRef), 600);
+  setTimeout(() => void reanchorParentSession(silentAudioRef, lastStateRef), 1200);
 }
 
 function bindMediaSessionActions(
@@ -108,20 +122,20 @@ function bindMediaSessionActions(
   ms.setActionHandler("play", () => {
     ms.playbackState = "playing";
     void player.resume();
-    reaffirmSession(silentAudioRef, lastStateRef);
+    scheduleReanchor(silentAudioRef, lastStateRef);
   });
   ms.setActionHandler("pause", () => {
     ms.playbackState = "paused";
     void player.pause();
-    reaffirmSession(silentAudioRef, lastStateRef);
+    scheduleReanchor(silentAudioRef, lastStateRef);
   });
   ms.setActionHandler("previoustrack", () => {
     void player.previousTrack();
-    reaffirmSession(silentAudioRef, lastStateRef);
+    scheduleReanchor(silentAudioRef, lastStateRef);
   });
   ms.setActionHandler("nexttrack", () => {
     void player.nextTrack();
-    reaffirmSession(silentAudioRef, lastStateRef);
+    scheduleReanchor(silentAudioRef, lastStateRef);
   });
   ms.setActionHandler("seekto", (details) => {
     if (typeof details.seekTime === "number") {
